@@ -1,0 +1,842 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta http-equiv="Content-Security-Policy" content="default-src * self blob: data: gap:; style-src * self 'unsafe-inline' blob: data: gap:; script-src * 'self' 'unsafe-eval' 'unsafe-inline' blob: data: gap:; object-src * 'self' blob: data: gap:; img-src * self 'unsafe-inline' blob: data: gap:; connect-src self * 'unsafe-inline' blob: data: gap:; frame-src * self blob: data: gap:;">
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NYC Subway Arrival Times</title>
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        h1 {
+            color: #0039a6;
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .selectors {
+            margin-bottom: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        select {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            background-color: white;
+            font-size: 1rem;
+            width: 100%;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 16px;
+        }
+        .train-icon {
+            display: inline-block;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            color: white;
+            text-align: center;
+            line-height: 36px;
+            font-weight: bold;
+            font-size: 1.2rem;
+            margin-right: 10px;
+        }
+        .train-icon.A, .train-icon.C, .train-icon.E {
+            background-color: #0039a6;  /* Blue */
+        }
+        .train-icon.G {
+            background-color: #6cbe45;  /* Light green */
+        }
+        .station-name {
+            color: #0039a6;
+            font-weight: bold;
+            font-size: 1.4rem;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .arrival-card {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 12px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+        }
+        .arrival-info {
+            flex-grow: 1;
+        }
+        .arrival-time {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .arrival-mins {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #0039a6;
+        }
+        .arrival-mins.G {
+            color: #6cbe45;
+        }
+        .direction {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .last-updated {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .refresh-btn {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #0039a6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 15px;
+            transition: background-color 0.2s;
+        }
+        .refresh-btn:hover {
+            background-color: #002d80;
+        }
+        .loading {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .error {
+            color: #d00;
+            text-align: center;
+            padding: 15px;
+            background: #fee;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .note {
+            font-size: 0.85rem;
+            margin-top: 25px;
+            color: #666;
+            text-align: center;
+        }
+        .direction-label {
+            font-weight: bold;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            padding-left: 5px;
+            color: #0039a6;
+        }
+        .line-header {
+            font-weight: bold;
+            margin-top: 25px;
+            margin-bottom: 10px;
+            padding: 8px;
+            background-color: #f0f0f0;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+        }
+        .no-arrivals {
+            text-align: center;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            margin: 10px 0;
+            color: #666;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <h1>NYC Subway Arrival Times</h1>
+    
+    <div class="selectors">
+        <div>
+            <label for="station-select">Select Station:</label>
+            <select id="station-select"></select>
+        </div>
+    </div>
+    
+    <div class="station-name" id="selected-station">Clinton-Washington Avs</div>
+    
+    <div id="arrivals-container">
+        <div class="loading">Loading arrival times...</div>
+    </div>
+    
+    <div class="last-updated" id="last-updated">Last updated: --</div>
+    <button class="refresh-btn" id="refresh-btn">Refresh</button>
+
+    <script>
+
+        //tests
+
+        console.log('protobuf', protobuf);
+
+        // GTFS-realtime schema for Protocol Buffers
+        const gtfsSchema = `
+            syntax = "proto2";
+            package transit_realtime;
+
+            message FeedMessage {
+              required FeedHeader header = 1;
+              repeated FeedEntity entity = 2;
+            }
+
+            message FeedHeader {
+              required string version = 1;
+              optional uint64 timestamp = 2;
+              optional bool incrementality = 3 [default = false];
+            }
+
+            message FeedEntity {
+              required string id = 1;
+              optional bool is_deleted = 2 [default = false];
+              optional TripUpdate trip_update = 3;
+              optional VehiclePosition vehicle = 4;
+              optional Alert alert = 5;
+            }
+
+            message TripUpdate {
+              required TripDescriptor trip = 1;
+              optional VehicleDescriptor vehicle = 3;
+              repeated StopTimeUpdate stop_time_update = 2;
+              optional uint64 timestamp = 4;
+            }
+
+            message StopTimeUpdate {
+              optional uint32 stop_sequence = 1;
+              optional string stop_id = 4;
+              optional StopTimeEvent arrival = 2;
+              optional StopTimeEvent departure = 3;
+              enum ScheduleRelationship {
+                SCHEDULED = 0;
+                SKIPPED = 1;
+                NO_DATA = 2;
+              }
+              optional ScheduleRelationship schedule_relationship = 5 [default = SCHEDULED];
+            }
+
+            message StopTimeEvent {
+              optional int32 delay = 1;
+              optional int64 time = 2;
+              optional int32 uncertainty = 3;
+            }
+
+            message TripDescriptor {
+              optional string trip_id = 1;
+              optional string route_id = 5;
+              optional string start_time = 2;
+              optional string start_date = 3;
+              enum ScheduleRelationship {
+                SCHEDULED = 0;
+                ADDED = 1;
+                UNSCHEDULED = 2;
+                CANCELED = 3;
+                REPLACEMENT = 5;
+              }
+              optional ScheduleRelationship schedule_relationship = 4 [default = SCHEDULED];
+            }
+
+            message VehicleDescriptor {
+              optional string id = 1;
+              optional string label = 2;
+              optional string license_plate = 3;
+            }
+
+            message VehiclePosition {
+              optional TripDescriptor trip = 1;
+              optional VehicleDescriptor vehicle = 8;
+              optional Position position = 2;
+              optional uint32 current_stop_sequence = 3;
+              optional string stop_id = 7;
+              enum VehicleStopStatus {
+                INCOMING_AT = 0;
+                STOPPED_AT = 1;
+                IN_TRANSIT_TO = 2;
+              }
+              optional VehicleStopStatus current_status = 4 [default = IN_TRANSIT_TO];
+              optional uint64 timestamp = 5;
+              enum CongestionLevel {
+                UNKNOWN_CONGESTION_LEVEL = 0;
+                RUNNING_SMOOTHLY = 1;
+                STOP_AND_GO = 2;
+                CONGESTION = 3;
+                SEVERE_CONGESTION = 4;
+              }
+              optional CongestionLevel congestion_level = 6;
+              enum OccupancyStatus {
+                EMPTY = 0;
+                MANY_SEATS_AVAILABLE = 1;
+                FEW_SEATS_AVAILABLE = 2;
+                STANDING_ROOM_ONLY = 3;
+                CRUSHED_STANDING_ROOM_ONLY = 4;
+                FULL = 5;
+                NOT_ACCEPTING_PASSENGERS = 6;
+              }
+              optional OccupancyStatus occupancy_status = 9;
+            }
+
+            message Position {
+              required float latitude = 1;
+              required float longitude = 2;
+              optional float bearing = 3;
+              optional double odometer = 4;
+              optional float speed = 5;
+            }
+
+            message Alert {
+              repeated TimeRange active_period = 1;
+              repeated EntitySelector informed_entity = 5;
+              enum Cause {
+                UNKNOWN_CAUSE = 1;
+                OTHER_CAUSE = 2;
+                TECHNICAL_PROBLEM = 3;
+                STRIKE = 4;
+                DEMONSTRATION = 5;
+                ACCIDENT = 6;
+                HOLIDAY = 7;
+                WEATHER = 8;
+                MAINTENANCE = 9;
+                CONSTRUCTION = 10;
+                POLICE_ACTIVITY = 11;
+                MEDICAL_EMERGENCY = 12;
+              }
+              optional Cause cause = 6 [default = UNKNOWN_CAUSE];
+              enum Effect {
+                NO_SERVICE = 1;
+                REDUCED_SERVICE = 2;
+                SIGNIFICANT_DELAYS = 3;
+                DETOUR = 4;
+                ADDITIONAL_SERVICE = 5;
+                MODIFIED_SERVICE = 6;
+                OTHER_EFFECT = 7;
+                UNKNOWN_EFFECT = 8;
+                STOP_MOVED = 9;
+              }
+              optional Effect effect = 7 [default = UNKNOWN_EFFECT];
+              optional TranslatedString url = 8;
+              optional TranslatedString header_text = 10;
+              optional TranslatedString description_text = 11;
+            }
+
+            message TimeRange {
+              optional uint64 start = 1;
+              optional uint64 end = 2;
+            }
+
+            message EntitySelector {
+              optional string agency_id = 1;
+              optional string route_id = 2;
+              optional int32 route_type = 3;
+              optional TripDescriptor trip = 4;
+              optional string stop_id = 5;
+            }
+
+            message TranslatedString {
+              repeated Translation translation = 1;
+            }
+
+            message Translation {
+              required string text = 1;
+              optional string language = 2;
+            }
+        `;
+
+        // API endpoints for different train lines
+        const apiEndpoints = {
+            ACE: 'https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace',
+            G: 'https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-g'
+        };
+
+        // All stations data, with service lines
+        const allStations = [
+            // AC shared stations
+            { id: "A09", name: "168 St", lines: ["A", "C"] },
+            { id: "A10", name: "163 St-Amsterdam Av", lines: ["A", "C"] },
+            { id: "A11", name: "155 St", lines: ["A", "C"] },
+            { id: "A12", name: "145 St", lines: ["A", "C"] },
+            { id: "A14", name: "135 St", lines: ["A", "C"] },
+            { id: "A15", name: "125 St", lines: ["A", "C"] },
+            { id: "A16", name: "116 St", lines: ["A", "C"] },
+            { id: "A17", name: "Cathedral Pkwy (110 St)", lines: ["A", "C"] },
+            { id: "A18", name: "103 St", lines: ["A", "C"] },
+            { id: "A19", name: "96 St", lines: ["A", "C"] },
+            { id: "A20", name: "86 St", lines: ["A", "C"] },
+            { id: "A21", name: "81 St-Museum of Natural History", lines: ["A", "C"] },
+            { id: "A22", name: "72 St", lines: ["A", "C"] },
+            { id: "A24", name: "59 St-Columbus Circle", lines: ["A", "C"] },
+            { id: "A25", name: "50 St", lines: ["A", "C"] },
+            { id: "A27", name: "42 St-Port Authority Bus Terminal", lines: ["A", "C"] },
+            { id: "A28", name: "34 St-Penn Station", lines: ["A", "C"] },
+            { id: "A30", name: "23 St", lines: ["A", "C"] },
+            { id: "A31", name: "14 St", lines: ["A", "C"] },
+            { id: "A32", name: "W 4 St-Wash Sq", lines: ["A", "C"] },
+            { id: "A33", name: "Spring St", lines: ["A", "C"] },
+            { id: "A34", name: "Canal St", lines: ["A", "C"] },
+            { id: "A36", name: "Chambers St", lines: ["A", "C"] },
+            { id: "A38", name: "Fulton St", lines: ["A", "C"] },
+            { id: "A40", name: "High St", lines: ["A", "C"] },
+            { id: "A41", name: "Jay St-MetroTech", lines: ["A", "C"] },
+            { id: "A42", name: "Hoyt-Schermerhorn Sts", lines: ["A", "C", "G"] },
+            { id: "A43", name: "Lafayette Av", lines: ["A", "C"] },
+            { id: "A44", name: "Clinton-Washington Avs", lines: ["A", "C", "G"] },
+            { id: "A45", name: "Franklin Av", lines: ["A", "C"] },
+            { id: "A46", name: "Nostrand Av", lines: ["A", "C"] },
+            { id: "A47", name: "Kingston-Throop Avs", lines: ["A", "C"] },
+            { id: "A48", name: "Utica Av", lines: ["A", "C"] },
+            { id: "A49", name: "Ralph Av", lines: ["A", "C"] },
+            { id: "A50", name: "Rockaway Av", lines: ["A", "C"] },
+            { id: "A51", name: "Broadway Junction", lines: ["A", "C"] },
+            { id: "A52", name: "Liberty Av", lines: ["A", "C"] },
+            { id: "A53", name: "Van Siclen Av", lines: ["A", "C"] },
+            { id: "A54", name: "Shepherd Av", lines: ["A", "C"] },
+            { id: "A55", name: "Euclid Av", lines: ["A", "C"] },
+            
+            // A-only stations
+            { id: "A02", name: "Inwood-207 St", lines: ["A"] },
+            { id: "A03", name: "Dyckman St", lines: ["A"] },
+            { id: "A05", name: "190 St", lines: ["A"] },
+            { id: "A06", name: "181 St", lines: ["A"] },
+            { id: "A07", name: "175 St", lines: ["A"] },
+            { id: "A57", name: "Grant Av", lines: ["A"] },
+            { id: "A59", name: "80 St", lines: ["A"] },
+            { id: "A60", name: "88 St", lines: ["A"] },
+            { id: "A61", name: "Rockaway Blvd", lines: ["A"] },
+            { id: "A63", name: "104 St", lines: ["A"] },
+            { id: "A64", name: "111 St", lines: ["A"] },
+            { id: "A65", name: "Ozone Park-Lefferts Blvd", lines: ["A"] },
+            { id: "H01", name: "Aqueduct-N Conduit Av", lines: ["A"] },
+            { id: "H02", name: "Howard Beach-JFK Airport", lines: ["A"] },
+            { id: "H03", name: "Broad Channel", lines: ["A"] },
+            { id: "H04", name: "Beach 90 St", lines: ["A"] },
+            { id: "H06", name: "Beach 67 St", lines: ["A"] },
+            { id: "H07", name: "Beach 60 St", lines: ["A"] },
+            { id: "H08", name: "Beach 44 St", lines: ["A"] },
+            { id: "H09", name: "Beach 36 St", lines: ["A"] },
+            { id: "H10", name: "Beach 25 St", lines: ["A"] },
+            { id: "H11", name: "Far Rockaway-Mott Av", lines: ["A"] },
+            { id: "H12", name: "Beach 98 St", lines: ["A"] },
+            { id: "H13", name: "Beach 105 St", lines: ["A"] },
+            { id: "H14", name: "Rockaway Park-Beach 116 St", lines: ["A"] },
+            
+            // G-only stations
+            { id: "G22", name: "Court Sq", lines: ["G"] },
+            { id: "G24", name: "21 St", lines: ["G"] },
+            { id: "G26", name: "Greenpoint Av", lines: ["G"] },
+            { id: "G28", name: "Nassau Av", lines: ["G"] },
+            { id: "G29", name: "Metropolitan Av", lines: ["G"] },
+            { id: "G30", name: "Broadway", lines: ["G"] },
+            { id: "G31", name: "Flushing Av", lines: ["G"] },
+            { id: "G32", name: "Myrtle-Willoughby Avs", lines: ["G"] },
+            { id: "G33", name: "Bedford-Nostrand Avs", lines: ["G"] },
+            { id: "G34", name: "Classon Av", lines: ["G"] },
+            { id: "G35", name: "Clinton-Washington Avs", lines: ["G"] },
+            { id: "G36", name: "Fulton St", lines: ["G"] },
+            { id: "G37", name: "Bergen St", lines: ["G"] },
+            { id: "G38", name: "Carroll St", lines: ["G"] },
+            { id: "G39", name: "Smith-9 Sts", lines: ["G"] },
+            { id: "G40", name: "4 Av", lines: ["G"] },
+            { id: "G41", name: "7 Av", lines: ["G"] },
+            { id: "G42", name: "15 St-Prospect Park", lines: ["G"] },
+            { id: "G43", name: "Fort Hamilton Pkwy", lines: ["G"] },
+            { id: "G44", name: "Church Av", lines: ["G"] }
+        ];
+
+        // Direction terminus information
+        const termini = {
+            A: {
+                N: "Inwood-207 St",
+                S: ["Far Rockaway-Mott Av", "Ozone Park-Lefferts Blvd", "Rockaway Park-Beach 116 St"]
+            },
+            C: {
+                N: "168 St",
+                S: "Euclid Av"
+            },
+            G: {
+                N: "Court Sq",
+                S: "Church Av"
+            }
+        };
+
+        // Current selection
+        let selectedStation = "A44"; // Default to Clinton-Washington Avs (C train)
+        
+        // Get all lines that serve a station
+        function getLinesForStation(stationId) {
+            const station = allStations.find(s => s.id === stationId);
+            return station ? station.lines : [];
+        }
+        
+        // Get station ID mapping for G train
+        function getGStationId(acStationId) {
+            // Map some common stations between A/C and G
+            const stationMap = {
+                "A42": "G41N", // Hoyt-Schermerhorn
+                "A44": "G35" // Clinton-Washington Avs
+            };
+            
+            return stationMap[acStationId] || null;
+        }
+        
+        // Populate the station dropdown
+        function populateStationDropdown() {
+            const stationSelect = document.getElementById('station-select');
+            stationSelect.innerHTML = '';
+            
+            // Sort stations alphabetically by name
+            const sortedStations = [...allStations].sort((a, b) => a.name.localeCompare(b.name));
+            
+            sortedStations.forEach(station => {
+                const option = document.createElement('option');
+                option.value = station.id;
+                
+                // Show which lines serve each station
+                const linesText = station.lines.join('/');
+                option.textContent = `${station.name} (${linesText})`;
+                
+                stationSelect.appendChild(option);
+            });
+            
+            stationSelect.value = selectedStation;
+            
+            // Update displayed station name
+            const stationName = allStations.find(s => s.id === selectedStation)?.name || "Unknown Station";
+            document.getElementById('selected-station').textContent = stationName;
+        }
+        
+        // Add event listeners for station dropdown
+        document.getElementById('station-select').addEventListener('change', function() {
+            selectedStation = this.value;
+            const stationName = allStations.find(s => s.id === selectedStation)?.name || "Unknown Station";
+            document.getElementById('selected-station').textContent = stationName;
+            updateArrivals();
+        });
+        
+        // Initialize the station dropdown
+        populateStationDropdown();
+        
+        // Function to fetch and process MTA data for a specific train line
+        async function fetchMTAData(line) {
+            try {
+                // Determine which API endpoint to use
+                let apiUrl;
+                if (line === 'G') {
+                    apiUrl = apiEndpoints.G;
+                } else {
+                    apiUrl = apiEndpoints.ACE;
+                }
+                
+                // Load Protocol Buffers schema
+                const root = protobuf.parse(gtfsSchema).root;
+                const FeedMessage = root.lookupType("transit_realtime.FeedMessage");
+                
+                // In a real implementation, you would use a proxy server to handle CORS
+                // and add your API key in the headers
+                const response = await fetch(apiUrl, {
+                    headers: {
+                        'x-api-key': 'YOUR_API_KEY_HERE' // Replace with your actual MTA API key
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                // Get the binary data
+                const buffer = await response.arrayBuffer();
+                
+                // Decode the Protocol Buffer message
+                const message = FeedMessage.decode(new Uint8Array(buffer));
+                const feed = FeedMessage.toObject(message);
+                
+                // Process feed data for the selected line and station
+                return processFeed(feed, line);
+                
+            } catch (error) {
+                console.error(`Error fetching MTA data for ${line} train:`, error);
+                return null;
+            }
+        }
+
+        // Process the GTFS feed for a specific line
+        function processFeed(feed, line) {
+            const northboundArrivals = [];
+            const southboundArrivals = [];
+            const now = new Date();
+            
+            // The stop IDs for the selected station, which may be different for G train
+            let stationId = selectedStation;
+            
+            // If looking for G train at a station that's typically referenced by A/C ID
+            if (line === 'G' && !stationId.startsWith('G')) {
+                const gStationId = getGStationId(stationId);
+                if (gStationId) {
+                    stationId = gStationId;
+                } else {
+                    // This A/C station doesn't have G service
+                    return {
+                        northbound: [],
+                        southbound: [],
+                        lastUpdated: now
+                    };
+                }
+            }
+            
+            const northboundStopId = stationId.endsWith('N') ? stationId : stationId + "N";
+            const southboundStopId = stationId.endsWith('S') ? stationId : stationId + "S";
+            
+            // Process each entity in the feed
+            feed.entity.forEach(entity => {
+                if (entity.tripUpdate) {
+                    const tripUpdate = entity.tripUpdate;
+                    const routeId = tripUpdate.trip.routeId;
+                    
+                    // Only interested in the specified train line
+                    if (routeId === line) {
+                        console.log('tripUpdate', tripUpdate)
+                        // Check each stop time update
+                        if(tripUpdate.stopTimeUpdate) {
+                            tripUpdate.stopTimeUpdate.forEach(update => {
+                                if (update.stopId === northboundStopId) {
+                                    if (update.arrival && update.arrival.time) {
+                                        const arrivalTime = new Date(update.arrival.time * 1000);
+                                        northboundArrivals.push(arrivalTime);
+                                    }
+                                } else if (update.stopId === southboundStopId) {
+                                    if (update.arrival && update.arrival.time) {
+                                        const arrivalTime = new Date(update.arrival.time * 1000);
+                                        southboundArrivals.push(arrivalTime);
+                                    }
+                                }
+                            });                            
+                        }
+
+                    }
+                }
+            });
+            
+            // Sort the arrival times
+            northboundArrivals.sort((a, b) => a - b);
+            southboundArrivals.sort((a, b) => a - b);
+            
+            // Filter out past arrivals
+            const filteredNorthbound = northboundArrivals.filter(time => time > now);
+            const filteredSouthbound = southboundArrivals.filter(time => time > now);
+            
+            return {
+                northbound: filteredNorthbound.slice(0, 3), // Next 3 northbound trains
+                southbound: filteredSouthbound.slice(0, 3), // Next 3 southbound trains
+                lastUpdated: now
+            };
+        }
+        
+        // For demonstration purposes, use simulated data if API call fails
+        function getSimulatedTrainData(line) {
+            console.log('error no mta data, ran getSimulatedTrainData')
+            // const now = new Date();
+            
+            // // Generate random intervals for each train
+            // const generateRandomTimes = () => {
+            //     const times = [];
+            //     let nextTime = now.getTime() + (Math.floor(Math.random() * 5) + 1) * 60000;
+                
+            //     for (let i = 0; i < 3; i++) {
+            //         times.push(new Date(nextTime));
+            //         // Next train is 5-12 minutes after the previous
+            //         nextTime += (Math.floor(Math.random() * 8) + 5) * 60000;
+            //     }
+                
+            //     return times;
+            // };
+            
+            // return {
+            //     northbound: generateRandomTimes(),
+            //     southbound: generateRandomTimes(),
+            //     lastUpdated: now,
+            //     line: line
+            // };
+        }
+        
+        function formatTime(date) {
+            let hours = date.getHours();
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // Convert 0 to 12
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes} ${ampm}`;
+        }
+        
+        function getMinutesFromNow(date) {
+            const now = new Date();
+            const diffMs = date - now;
+            return Math.max(0, Math.round(diffMs / 60000));
+        }
+        
+        function getNorthboundDestination(line) {
+            return termini[line].N;
+        }
+        
+        function getSouthboundDestination(line) {
+            const destinations = termini[line].S;
+            if (Array.isArray(destinations)) {
+                return destinations[0]; // Use first destination for simplicity
+            }
+            return destinations;
+        }
+        
+        async function updateArrivals() {
+            const container = document.getElementById('arrivals-container');
+            container.innerHTML = '<div class="loading">Loading arrival times...</div>';
+            
+            // Get all train lines that serve this station
+            const lines = getLinesForStation(selectedStation);
+            
+            // If no lines serve this station (shouldn't happen with UI)
+            if (lines.length === 0) {
+                container.innerHTML = `
+                    <div class="error">
+                        No train lines serve this station.
+                    </div>
+                `;
+                return;
+            }
+            
+            // Fetch data for each line that serves this station
+            const trainDataPromises = lines.map(async (line) => {
+                try {
+                    const data = await fetchMTAData(line);
+                    if (data) {
+                        return { ...data, line };
+                    } else {
+                        return getSimulatedTrainData(line);
+                    }
+                } catch (error) {
+                    console.error(`Error fetching data for ${line} train:`, error);
+                    return getSimulatedTrainData(line);
+                }
+            });
+            
+            try {
+                // Wait for all data to be fetched
+                const allTrainData = await Promise.all(trainDataPromises);
+                
+                // Display the arrival times
+                let arrivalsHtml = '';
+                let lastUpdatedTime = null;
+                
+                // For each train line serving this station
+                for (const trainData of allTrainData) {
+                    const line = trainData.line;
+                    
+                    // Keep track of the latest update time
+                    if (!lastUpdatedTime || trainData.lastUpdated > lastUpdatedTime) {
+                        lastUpdatedTime = trainData.lastUpdated;
+                    }
+                    
+                    // Add line header
+                    arrivalsHtml += `
+                        <div class="line-header">
+                            <div class="train-icon ${line}">${line}</div>
+                            <span>${line} Train</span>
+                        </div>
+                    `;
+                    
+                    // North direction
+                    arrivalsHtml += `<div class="direction-label">Northbound to ${getNorthboundDestination(line)}</div>`;
+                    
+                    if (trainData.northbound.length === 0) {
+                        arrivalsHtml += `
+                            <div class="no-arrivals">
+                                No upcoming arrivals found
+                            </div>
+                        `;
+                    } else {
+                        trainData.northbound.forEach(time => {
+                            const mins = getMinutesFromNow(time);
+                            arrivalsHtml += `
+                                <div class="arrival-card">
+                                    <div class="train-icon ${line}">${line}</div>
+                                    <div class="arrival-info">
+                                        <div class="arrival-time">${formatTime(time)}</div>
+                                        <div class="direction">To ${getNorthboundDestination(line)}</div>
+                                    </div>
+                                    <div class="arrival-mins ${line}">${mins} min</div>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    // South direction
+                    arrivalsHtml += `<div class="direction-label">Southbound to ${getSouthboundDestination(line)}</div>`;
+                    
+                    if (trainData.southbound.length === 0) {
+                        arrivalsHtml += `
+                            <div class="no-arrivals">
+                                No upcoming arrivals found
+                            </div>
+                        `;
+                    } else {
+                        trainData.southbound.forEach(time => {
+                            const mins = getMinutesFromNow(time);
+                            arrivalsHtml += `
+                                <div class="arrival-card">
+                                    <div class="train-icon ${line}">${line}</div>
+                                    <div class="arrival-info">
+                                        <div class="arrival-time">${formatTime(time)}</div>
+                                        <div class="direction">To ${getSouthboundDestination(line)}</div>
+                                    </div>
+                                    <div class="arrival-mins ${line}">${mins} min</div>
+                                </div>
+                            `;
+                        });
+                    }
+                }
+                
+                container.innerHTML = arrivalsHtml;
+                
+                if (lastUpdatedTime) {
+                    document.getElementById('last-updated').textContent = 
+                        `Last updated: ${formatTime(lastUpdatedTime)}`;
+                }
+                
+            } catch (error) {
+                console.error("Error updating arrivals:", error);
+                container.innerHTML = `
+                    <div class="error">
+                        Error loading train arrivals. Please try again later.<br>
+                        ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // Initial update
+        updateArrivals();
+        
+        // Refresh button handler
+        document.getElementById('refresh-btn').addEventListener('click', updateArrivals);
+        
+        // Auto refresh every 30 seconds
+        setInterval(updateArrivals, 30000);
+    </script>
+
+
+</body></html>
